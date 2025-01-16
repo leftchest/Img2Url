@@ -255,9 +255,12 @@ class Img2Url(Plugin):
                 logger.error(f"[Img2Url] 处理图片时发生错误: {e}")
                 e_context['reply'] = Reply(ReplyType.ERROR, f"处理图片时发生错误: {e}")
     
-    def get_help_text(self, **kwargs):
-        help_text = "图片转链接插件使用说明：\n"
-        help_text += "1. 发送'图转链接'，收到反馈消息后再发送图片\n"
-        help_text += "2. 插件会自动上传图片并返回可访问的URL\n"
-        help_text += "3. 您可以连续发送图片，插件会立即返回每张图片的链接，发送其他文本消息将会结束图片上传并返回所有链接的汇总\n"
+    def get_help_text(self, verbose = False, **kwargs):
+        help_text = "图片转链接\n"
+        if not verbose:
+            return help_text
+        help_text += f"""使用方法:
+1. 发送'图转链接'，收到反馈消息后再发送图片
+2. 插件会自动上传图片并返回可访问的URL
+3. 您可以连续发送图片，插件会立即返回每张图片的链接，发送其他文本消息将会结束图片上传并返回所有链接的汇总"""
         return help_text
