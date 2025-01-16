@@ -8,28 +8,29 @@ from bridge.context import ContextType
 from bridge.reply import Reply, ReplyType
 from common.log import logger
 from plugins import *
+import re # 导入re模块
 
 @plugins.register(
     name="Img2Url",
     desire_priority=200,
     hidden=False,
     desc="图片转链接插件",
-    version="1.3",
+    version="1.5", # 更新版本号
     author="sofs2005",
 )
 class Img2Url(Plugin):
     def __init__(self):
         super().__init__()
         # 加载配置
-        self.config_path = os.path.join(os.path.dirname(__file__), "config.json")
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                self.imgbb_api_key = config.get("imgbb_api_key", "")
-                # Lsky Pro 配置
-                self.lsky_api_url = config.get("lsky_api_url", "")
-                self.lsky_token = config.get("lsky_token", "")  # 直接使用配置的 token
-                self.upload_service = config.get("upload_service", "imgbb")
+            self.config = super().load_config()
+            if not self.config:
+                self.config = self._load_config_template()
+            self.imgbb_api_key = self.config.get("imgbb_api_key", "")
+            # Lsky Pro 配置
+            self.lsky_api_url = self.config.get("lsky_api_url", "")
+            self.lsky_token = self.config.get("lsky_token", "")  # 直接使用配置的 token
+            self.upload_service = self.config.get("upload_service", "imgbb")
         except Exception as e:
             logger.error(f"[Img2Url] 加载配置文件失败: {e}")
             self.imgbb_api_key = None
@@ -44,10 +45,20 @@ class Img2Url(Plugin):
         self.trigger_word = "图转链接"
         self.waiting_for_image = {}  # 修改为字典，值可以是URL列表
         
+        # 【新增】加载主配置文件，获取群聊前缀
+        main_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "config.json")
+        if os.path.exists(main_config_path):
+            with open(main_config_path, "r", encoding="utf-8") as f:
+                main_config = json.load(f)
+                # 获取群聊前缀列表
+                self.group_chat_prefix = main_config.get("group_chat_prefix", [])
+        else:
+            self.group_chat_prefix = []
+        
         # 注册消息处理器
         self.handlers[Event.ON_HANDLE_CONTEXT] = self.on_handle_context
         logger.info("[Img2Url] 插件初始化成功")
-
+    
     def upload_to_imgbb(self, base64_image: str) -> str:
         """上传base64图片到ImgBB"""
         try:
@@ -191,29 +202,41 @@ class Img2Url(Plugin):
             
         user_id = msg.from_user_id
 
+        # 【修改】 群聊消息处理逻辑
+        if e_context['context'].type == ContextType.TEXT and msg.is_group:
+            # 遍历前缀列表，检查消息内容是否以这些前缀开头，允许前缀前后有0个或多个空格
+            for prefix in self.group_chat_prefix:
+                pattern = r'^\s*{}\s+'.format(re.escape(prefix))
+                if re.match(pattern, content):
+                    # 去掉前缀和前后的空格
+                    content = re.sub(pattern, '', content)
+                    break
+
         # 处理文本消息中的触发词
         if e_context['context'].type == ContextType.TEXT:
-             if self.trigger_word in content:
-                 self.waiting_for_image[user_id] = []  # 初始化用户上传列表
-                 e_context['reply'] = Reply(ReplyType.TEXT, "请发送需要转换的图片")
-                 e_context.action = EventAction.BREAK_PASS
-                 return
-             elif user_id in self.waiting_for_image:
+            # 使用正则表达式匹配触发词，允许前后有0个或多个空格
+            pattern = r'^\s*' + re.escape(self.trigger_word) + r'\s*$'
+            if re.search(pattern, content):
+                self.waiting_for_image[user_id] = []  # 初始化用户上传列表
+                e_context['reply'] = Reply(ReplyType.TEXT, "请发送需要转换的图片")
+                e_context.action = EventAction.BREAK_PASS
+                return
+            elif user_id in self.waiting_for_image:
                  # 如果用户发送的是非图片消息，则发送已上传的图片链接
                  if self.waiting_for_image[user_id]:
-                     image_urls = self.waiting_for_image[user_id]
+                    image_urls = self.waiting_for_image[user_id]
                      
-                     # 组装所有图片的URL到一个字符串中
-                     url_text = "====== 图片链接汇总 ======\n"
-                     for index, url in enumerate(image_urls, start=1):
-                         url_text += f"{index}. {url}\n"
-                     url_text += "====================="
+                    # 组装所有图片的URL到一个字符串中
+                    url_text = "====== 图片链接汇总 ======\n"
+                    for index, url in enumerate(image_urls, start=1):
+                        url_text += f"{index}. {url}\n"
+                    url_text += "====================="
 
-                     e_context['reply'] = Reply(ReplyType.TEXT, url_text)
-                     e_context['context'].kwargs['no_image_parse'] = True
-                     e_context.action = EventAction.BREAK_PASS
-                 del self.waiting_for_image[user_id] # 清除等待状态
-                 return
+                    e_context['reply'] = Reply(ReplyType.TEXT, url_text)
+                    e_context['context'].kwargs['no_image_parse'] = True
+                    e_context.action = EventAction.BREAK_PASS
+                del self.waiting_for_image[user_id] # 清除等待状态
+                return
 
         # 处理图片消息
         if e_context['context'].type == ContextType.IMAGE and user_id in self.waiting_for_image:
@@ -239,17 +262,9 @@ class Img2Url(Plugin):
                     e_context['reply'] = Reply(ReplyType.ERROR, "上传图片失败")
                     return
                 
-                # 获取当前图片的序号
-                current_index = len(self.waiting_for_image[user_id]) + 1
-                
-                # 将图片URL添加到用户列表
+                # 【修改】不再立即返回，将图片URL添加到用户列表
                 self.waiting_for_image[user_id].append(image_url)
-                
-                # 立即返回包含 URL 的消息, 并带上当前序号
-                url_text = f"====== 图片上传成功 ======\n{current_index}. {image_url}\n====================="
-                e_context['reply'] = Reply(ReplyType.TEXT, url_text)
-                e_context['context'].kwargs['no_image_parse'] = True
-                e_context.action = EventAction.BREAK_PASS
+                e_context.action = EventAction.BREAK_PASS # 阻止后续处理
             
             except Exception as e:
                 logger.error(f"[Img2Url] 处理图片时发生错误: {e}")
@@ -261,6 +276,6 @@ class Img2Url(Plugin):
             return help_text
         help_text += f"""使用方法:
 1. 发送'图转链接'，收到反馈消息后再发送图片
-2. 插件会自动上传图片并返回可访问的URL
-3. 您可以连续发送图片，插件会立即返回每张图片的链接，发送其他文本消息将会结束图片上传并返回所有链接的汇总"""
+2. 插件会自动上传图片
+3. 您可以连续发送图片，发送其他文本消息将会结束图片上传并返回所有链接的汇总"""
         return help_text
