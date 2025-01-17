@@ -235,8 +235,8 @@ class Img2Url(Plugin):
                     e_context['reply'] = Reply(ReplyType.TEXT, url_text)
                     e_context['context'].kwargs['no_image_parse'] = True
                     e_context.action = EventAction.BREAK_PASS
-                del self.waiting_for_image[user_id] # 清除等待状态
-                return
+            del self.waiting_for_image[user_id] # 清除等待状态
+            return
 
         # 处理图片消息
         if e_context['context'].type == ContextType.IMAGE and user_id in self.waiting_for_image:
