@@ -223,7 +223,7 @@ class Img2Url(Plugin):
                 return
             elif user_id in self.waiting_for_image:
                  # 如果用户发送的是非图片消息，则发送已上传的图片链接
-                 if self.waiting_for_image[user_id]:
+                if self.waiting_for_image[user_id]:
                     image_urls = self.waiting_for_image[user_id]
                      
                     # 组装所有图片的URL到一个字符串中
@@ -235,8 +235,9 @@ class Img2Url(Plugin):
                     e_context['reply'] = Reply(ReplyType.TEXT, url_text)
                     e_context['context'].kwargs['no_image_parse'] = True
                     e_context.action = EventAction.BREAK_PASS
-            del self.waiting_for_image[user_id] # 清除等待状态
-            return
+                if user_id in self.waiting_for_image: #再次判断是否存在，避免二次删除错误
+                   del self.waiting_for_image[user_id] # 清除等待状态
+                return
 
         # 处理图片消息
         if e_context['context'].type == ContextType.IMAGE and user_id in self.waiting_for_image:
